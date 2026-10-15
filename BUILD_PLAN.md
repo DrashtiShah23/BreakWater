@@ -7,7 +7,7 @@ No benchmark numbers, AWS validation results, or integration claims appear
 here as completed work. Those must be earned by later milestones.
 
 **Status:** Plan approved (including zero-cost constraint and owner-only
-Git). Milestones 0–4 complete (TLS terminates at Envoy). Milestone 5+ not
+Git). Milestones 0–5 complete (host + path routing). Milestone 6+ not
 started.
 
 ---
@@ -596,12 +596,18 @@ unknown host/path behavior; routing table in docs/README.
 
 **Acceptance:**
 
-- [ ] Host A and Host B route as documented.
-- [ ] Path version selection works.
-- [ ] Unknown host and unknown path return explicit documented behavior.
-- [ ] Integration tests cover the routing table (compose-based).
+- [x] Host A and Host B route as documented.
+- [x] Path version selection works.
+- [x] Unknown host and unknown path return explicit documented behavior.
+- [x] Integration tests cover the routing table (compose-based).
 
 **Local:** yes · **AWS:** no
+
+**Notes (M5):** `api.breakwater.local` → `upstream_api`; 
+`status.breakwater.local` → `upstream_status`. Exact paths only (no broad
+`/api/` or `/__test__/` catch-alls). Unknown host/path → edge 404.
+Route-class ≠ hostname. `:8080` kept as local-dev plaintext debug bound to
+`127.0.0.1`.
 
 ---
 

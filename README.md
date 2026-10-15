@@ -13,13 +13,15 @@ change-management system. Those are different problems.
 
 ## Status
 
-**Milestone 4 — TLS terminates at Envoy.** Client HTTPS traffic reaches
-`upstream-api` through Envoy on port 8443; the Envoy→upstream hop stays
-HTTP. Host-based routing, Redis, rate limiting, Prometheus, Grafana,
-Terraform apply, and benchmarks are **not** implemented yet.
+**Milestone 5 — host and path routing.** HTTPS clients reach versioned API
+or status surfaces via `Host: api.breakwater.local` /
+`status.breakwater.local`. TLS still terminates at Envoy; upstream hops
+remain HTTP. Redis, rate limiting, Prometheus, Grafana, Terraform apply,
+and benchmarks are **not** implemented yet.
 
 Development certificates are generated locally via `make certs` and are
-**not** production credentials. Private keys are gitignored.
+**not** production credentials. Private keys are gitignored. Routing
+contract: [`docs/routing_table.md`](docs/routing_table.md).
 
 **Cost:** The project is designed to be completed at **zero cloud spend**.
 Real AWS apply is optional validation only—never required for Definition
@@ -86,18 +88,22 @@ make test-upstream
 make test-integration
 ```
 
-Data path: `https://127.0.0.1:8443/api/v1/items` → Envoy (TLS end) → HTTP `upstream-api`.
+Data path examples:
 
 ```bash
-curl --cacert envoy/tls/ca.crt https://127.0.0.1:8443/api/v1/items
+curl --cacert envoy/tls/ca.crt --resolve api.breakwater.local:8443:127.0.0.1 \
+  https://api.breakwater.local:8443/api/v1/items
+curl --cacert envoy/tls/ca.crt --resolve status.breakwater.local:8443:127.0.0.1 \
+  https://status.breakwater.local:8443/api/v1/status
 ```
 
-Test controls (local only; disable with `ENABLE_TEST_CONTROLS=false`):
+Test controls stay **off** the Envoy surface (direct upstream only):
 
 ```bash
 curl -s -X POST http://127.0.0.1:9001/__test__/errors \
   -H 'content-type: application/json' -d '{"mode":"http_500","count":1}'
-curl -s --cacert envoy/tls/ca.crt https://127.0.0.1:8443/api/v1/items
+curl --cacert envoy/tls/ca.crt --resolve api.breakwater.local:8443:127.0.0.1 \
+  https://api.breakwater.local:8443/api/v1/items
 curl -s -X POST http://127.0.0.1:9001/__test__/reset
 ```
 
@@ -107,6 +113,7 @@ curl -s -X POST http://127.0.0.1:9001/__test__/reset
 | --- | --- |
 | [BUILD_PLAN.md](BUILD_PLAN.md) | Milestones, decisions, cost path |
 | [docs/architecture.md](docs/architecture.md) | Request paths and component roles |
+| [docs/routing_table.md](docs/routing_table.md) | Host/path routing contract |
 | [docs/adr/](docs/adr/) | Architecture decision records |
 | [BREAKWATER_BUILD_SPEC.md](BREAKWATER_BUILD_SPEC.md) | Engineering contract |
 

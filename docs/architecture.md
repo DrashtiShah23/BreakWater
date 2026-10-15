@@ -45,23 +45,25 @@ control-plane workflow product for changing network infrastructure.
 
 ## Logical diagram
 
-### Milestone 4 (implemented now)
+### Milestone 5 (implemented now)
 
 ```mermaid
 flowchart LR
   subgraph dataPlane ["Data traffic"]
-    Client -->|HTTPS :8443| Envoy
-    Envoy -->|HTTP :8000| API["upstream-api"]
+    Client -->|HTTPS :8443 Host api| Envoy
+    Client -->|HTTPS :8443 Host status| Envoy
+    Envoy -->|HTTP| API["upstream-api"]
+    Envoy -->|HTTP| ST["upstream-status"]
   end
   subgraph controlPlane ["Control traffic"]
-    Admin[Operator / tests] -->|admin :9901 plaintext| Envoy
-    Admin -->|/__test__/* direct| API
-    StatusDirect["upstream-status :9002"] -.->|direct until M5 host routing| Admin
+    Admin[Operator / tests] -->|admin :9901| Envoy
+    Admin -->|/__test__/* direct :9001/:9002| API
+    Admin -->|/__test__/* direct| ST
   end
 ```
 
-TLS terminates at Envoy. Upstream remains HTTP on the compose network.
-Development certificates only (`make certs`); private keys are gitignored.
+TLS terminates at Envoy. Host selects upstream. Upstream remains HTTP.
+`/__test__/*` is not Envoy-routed. See `docs/routing_table.md`.
 
 ### Intended full architecture (later milestones)
 
@@ -119,12 +121,12 @@ observability traffic**.
 
 ### Envoy
 
-**Milestone 4:** HTTPS reverse proxy to `upstream-api` with TLS
-termination at Envoy, request ID preservation, stdout access logs, admin
-port for control. Upstream hop is plaintext HTTP.
+**Milestone 5:** HTTPS reverse proxy with host/path routing to
+`upstream-api` and `upstream-status`, TLS termination at Envoy, request
+ID preservation, stdout access logs, admin port for control. Upstream hop
+is plaintext HTTP.
 
-**Later:** host/path routing, timeouts, conservative retries, active
-health checking, rate-limit filter, Prometheus metrics.
+**Later:** timeouts / active HC polish, rate-limit filter, Prometheus.
 
 ### Rate-limit service + Redis
 

@@ -38,8 +38,10 @@ help:
 	@echo "  make clean                Remove local generated artifacts"
 	@echo ""
 	@echo "Data traffic  = HTTPS client -> Envoy :$(ENVOY_HTTPS_PORT) (TLS terminates at Envoy)"
+	@echo "Hosts         = api.breakwater.local | status.breakwater.local"
 	@echo "Upstream hop  = Envoy -> upstream HTTP on the compose network"
-	@echo "Control       = Envoy admin :$(ENVOY_ADMIN_PORT), /__test__/*, health probes"
+	@echo "Control       = admin :$(ENVOY_ADMIN_PORT); /__test__ via :9001/:9002 only"
+	@echo "Debug HTTP    = 127.0.0.1:$(ENVOY_HTTP_PORT) (local only; same routing)"
 
 bootstrap:
 	@test -f .env.example
@@ -81,19 +83,29 @@ validate-envoy: ensure-certs
 		-c /etc/envoy/envoy.yaml
 
 smoke: ensure-certs
-	@echo "Functional HTTPS smoke (not a benchmark): TLS terminates at Envoy"
+	@echo "Functional HTTPS smoke (not a benchmark): host + path routing"
 	@test -f "$(CA_CERT)"
 	@curl -sf "http://127.0.0.1:$(ENVOY_ADMIN_PORT)/ready" >/dev/null
-	@curl -sf --cacert "$(CA_CERT)" "https://127.0.0.1:$(ENVOY_HTTPS_PORT)/health" | $(PYTHON) -m json.tool
-	@curl -sf --cacert "$(CA_CERT)" "https://127.0.0.1:$(ENVOY_HTTPS_PORT)/api/v1/items" | $(PYTHON) -m json.tool
-	@curl -sf --cacert "$(CA_CERT)" "https://127.0.0.1:$(ENVOY_HTTPS_PORT)/api/v2/items" | $(PYTHON) -m json.tool
-	@echo "unknown path (expect 404 from edge):"
-	@curl -s --cacert "$(CA_CERT)" -o /dev/null -w "HTTP %{http_code}\n" "https://127.0.0.1:$(ENVOY_HTTPS_PORT)/nope"
+	@curl -sf --cacert "$(CA_CERT)" --resolve api.breakwater.local:$(ENVOY_HTTPS_PORT):127.0.0.1 \
+		"https://api.breakwater.local:$(ENVOY_HTTPS_PORT)/health" | $(PYTHON) -m json.tool
+	@curl -sf --cacert "$(CA_CERT)" --resolve api.breakwater.local:$(ENVOY_HTTPS_PORT):127.0.0.1 \
+		"https://api.breakwater.local:$(ENVOY_HTTPS_PORT)/api/v1/items" | $(PYTHON) -m json.tool
+	@curl -sf --cacert "$(CA_CERT)" --resolve api.breakwater.local:$(ENVOY_HTTPS_PORT):127.0.0.1 \
+		"https://api.breakwater.local:$(ENVOY_HTTPS_PORT)/api/v2/items" | $(PYTHON) -m json.tool
+	@curl -sf --cacert "$(CA_CERT)" --resolve status.breakwater.local:$(ENVOY_HTTPS_PORT):127.0.0.1 \
+		"https://status.breakwater.local:$(ENVOY_HTTPS_PORT)/api/v1/status" | $(PYTHON) -m json.tool
+	@echo "unknown path on api host (expect 404):"
+	@curl -s --cacert "$(CA_CERT)" --resolve api.breakwater.local:$(ENVOY_HTTPS_PORT):127.0.0.1 \
+		-o /dev/null -w "HTTP %{http_code}\n" "https://api.breakwater.local:$(ENVOY_HTTPS_PORT)/nope"
+	@echo "unknown host (expect 404):"
+	@curl -s --cacert "$(CA_CERT)" -H 'Host: other.example' \
+		-o /dev/null -w "HTTP %{http_code}\n" "https://127.0.0.1:$(ENVOY_HTTPS_PORT)/api/v1/items"
 	@echo "untrusted CA (expect curl TLS failure without --cacert):"
-	@curl -sS "https://127.0.0.1:$(ENVOY_HTTPS_PORT)/health" >/dev/null 2>&1 \
+	@curl -sS --resolve api.breakwater.local:$(ENVOY_HTTPS_PORT):127.0.0.1 \
+		"https://api.breakwater.local:$(ENVOY_HTTPS_PORT)/health" >/dev/null 2>&1 \
 		&& echo "UNEXPECTED: system trust accepted dev cert" && exit 1 \
 		|| echo "TLS verification failed as expected without trusting envoy/tls/ca.crt"
-	@echo "direct upstream baseline still available on :$${UPSTREAM_API_PORT:-9001} (HTTP)"
+	@echo "test-control remains direct-only: http://127.0.0.1:$${UPSTREAM_API_PORT:-9001}/__test__/state"
 
 test test-upstream:
 	cd $(UPSTREAM_DIR) && $(PYTHON) -m pytest -q
@@ -113,7 +125,8 @@ fail inject-failure:
 	@echo "  curl -X POST http://127.0.0.1:9001/__test__/health -H 'content-type: application/json' -d '{\"healthy\":false}'"
 	@echo "  curl -X POST http://127.0.0.1:9001/__test__/reset"
 	@echo "Then observe via HTTPS Envoy:"
-	@echo "  curl --cacert envoy/tls/ca.crt https://127.0.0.1:$(ENVOY_HTTPS_PORT)/api/v1/items"
+	@echo "  curl --cacert envoy/tls/ca.crt --resolve api.breakwater.local:$(ENVOY_HTTPS_PORT):127.0.0.1 \\"
+	@echo "    https://api.breakwater.local:$(ENVOY_HTTPS_PORT)/api/v1/items"
 
 fmt:
 	cd $(UPSTREAM_DIR) && $(PYTHON) -m ruff format app tests
