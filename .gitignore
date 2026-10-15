@@ -1,0 +1,57 @@
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# TLS material (generate locally; never commit private keys)
+envoy/tls/*.pem
+envoy/tls/*.key
+envoy/tls/*.crt
+envoy/tls/*.p12
+!envoy/tls/README.md
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Terraform
+terraform/**/.terraform/
+terraform/**/*.tfstate
+terraform/**/*.tfstate.*
+terraform/**/*.tfvars
+!terraform/**/*.tfvars.example
+terraform/**/crash.log
+terraform/**/.terraform.lock.hcl
+
+# Docker
+*.log
+
+# Benchmark scratch (committed results live under load/results/ by policy)
+*.tmp
+.k6/
+
+# Secrets / credentials
+*.pem
+id_rsa*
+credentials.json
+**/secrets/
+.venv/
+services/upstream/.venv/
