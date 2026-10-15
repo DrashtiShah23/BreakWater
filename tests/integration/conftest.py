@@ -19,10 +19,16 @@ ENVOY_BASE = os.environ.get("BREAKWATER_ENVOY_URL", "https://127.0.0.1:8443").rs
 UPSTREAM_API_BASE = os.environ.get(
     "BREAKWATER_UPSTREAM_API_URL", "http://127.0.0.1:9001"
 ).rstrip("/")
+UPSTREAM_STATUS_BASE = os.environ.get(
+    "BREAKWATER_UPSTREAM_STATUS_URL", "http://127.0.0.1:9002"
+).rstrip("/")
 ENVOY_ADMIN = os.environ.get(
     "BREAKWATER_ENVOY_ADMIN_URL", "http://127.0.0.1:9901"
 ).rstrip("/")
 CA_CERT_PATH = Path(os.environ.get("BREAKWATER_CA_CERT", str(DEFAULT_CA)))
+
+API_HOST = "api.breakwater.local"
+STATUS_HOST = "status.breakwater.local"
 
 
 def _ssl_context_for_ca(ca_path: Path) -> ssl.SSLContext:
@@ -41,13 +47,17 @@ def _client_kwargs() -> dict:
 
 
 def _wait_url(
-    url: str, *, verify: bool | ssl.SSLContext = True, timeout_s: float = 60.0
+    url: str,
+    *,
+    verify: bool | ssl.SSLContext = True,
+    headers: dict[str, str] | None = None,
+    timeout_s: float = 60.0,
 ) -> None:
     deadline = time.time() + timeout_s
     last_error: Exception | None = None
     while time.time() < deadline:
         try:
-            response = httpx.get(url, timeout=2.0, verify=verify)
+            response = httpx.get(url, timeout=2.0, verify=verify, headers=headers)
             if response.status_code < 500:
                 return
         except Exception as exc:  # noqa: BLE001 - poll until ready
@@ -67,12 +77,32 @@ def upstream_api_base() -> str:
 
 
 @pytest.fixture(scope="session")
+def upstream_status_base() -> str:
+    return UPSTREAM_STATUS_BASE
+
+
+@pytest.fixture(scope="session")
 def ca_cert_path() -> Path:
     return CA_CERT_PATH
 
 
 @pytest.fixture(scope="session")
-def require_stack(envoy_base: str, upstream_api_base: str, ca_cert_path: Path) -> None:
+def api_host() -> str:
+    return API_HOST
+
+
+@pytest.fixture(scope="session")
+def status_host() -> str:
+    return STATUS_HOST
+
+
+@pytest.fixture(scope="session")
+def require_stack(
+    envoy_base: str,
+    upstream_api_base: str,
+    ca_cert_path: Path,
+    api_host: str,
+) -> None:
     """Skip the session if the local Compose edge stack is not running."""
     if os.environ.get("BREAKWATER_SKIP_INTEGRATION") == "1":
         pytest.skip("BREAKWATER_SKIP_INTEGRATION=1")
@@ -85,7 +115,12 @@ def require_stack(envoy_base: str, upstream_api_base: str, ca_cert_path: Path) -
         verify = _ssl_context_for_ca(ca_cert_path)
     try:
         _wait_url(f"{upstream_api_base}/health", verify=True, timeout_s=5.0)
-        _wait_url(f"{envoy_base}/health", verify=verify, timeout_s=5.0)
+        _wait_url(
+            f"{envoy_base}/health",
+            verify=verify,
+            headers={"Host": api_host},
+            timeout_s=5.0,
+        )
         _wait_url(f"{ENVOY_ADMIN}/ready", verify=True, timeout_s=5.0)
     except RuntimeError as exc:
         pytest.skip(
@@ -108,8 +143,13 @@ def upstream_http() -> httpx.Client:
 
 @pytest.fixture(autouse=True)
 def reset_upstream_injection(
-    upstream_http: httpx.Client, upstream_api_base: str, require_stack: None
+    upstream_http: httpx.Client,
+    upstream_api_base: str,
+    upstream_status_base: str,
+    require_stack: None,
 ) -> None:
     upstream_http.post(f"{upstream_api_base}/__test__/reset")
+    upstream_http.post(f"{upstream_status_base}/__test__/reset")
     yield
     upstream_http.post(f"{upstream_api_base}/__test__/reset")
+    upstream_http.post(f"{upstream_status_base}/__test__/reset")
