@@ -45,13 +45,30 @@ control-plane workflow product for changing network infrastructure.
 
 ## Logical diagram
 
+### Milestone 3 (implemented now)
+
+```mermaid
+flowchart LR
+  subgraph dataPlane ["Data traffic"]
+    Client -->|HTTP :8080| Envoy
+    Envoy -->|HTTP :8000| API["upstream-api"]
+  end
+  subgraph controlPlane ["Control traffic"]
+    Admin[Operator / tests] -->|admin :9901| Envoy
+    Admin -->|/__test__/* direct or via edge| API
+    StatusDirect["upstream-status :9002"] -.->|direct until M5 host routing| Admin
+  end
+```
+
+### Intended full architecture (later milestones)
+
 ```mermaid
 flowchart TB
   subgraph clients ["Clients"]
     C[Client]
   end
 
-  subgraph awsEntry ["AWS validation only"]
+  subgraph awsEntry ["Optional AWS design only"]
     NLB["Network Load Balancer<br/>TCP :443 passthrough"]
   end
 
@@ -92,16 +109,18 @@ flowchart TB
   Prom -.->|scrape control| RLS
 ```
 
-Solid arrows are **data traffic** (plus the rate-limit decision on the
-request path). Dotted arrows are **control / observability traffic**.
+Solid arrows are **data traffic**. Dotted arrows are **control /
+observability traffic**.
 
 ## Components
 
 ### Envoy
 
-Owns TLS termination, host and path routing, timeouts, conservative
-retries on safe GETs, active health checking, rate-limit filter
-integration, access logs, and Prometheus metrics.
+**Milestone 3:** plaintext HTTP reverse proxy to `upstream-api`, request
+ID preservation, stdout access logs, admin port for control.
+
+**Later:** TLS termination, host/path routing, timeouts, conservative
+retries, active health checking, rate-limit filter, Prometheus metrics.
 
 ### Rate-limit service + Redis
 

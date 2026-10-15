@@ -6,8 +6,9 @@ It is intentionally written before any application code.
 No benchmark numbers, AWS validation results, or integration claims appear
 here as completed work. Those must be earned by later milestones.
 
-**Status:** Plan approved (including zero-cost constraint). Milestones 0–2
-complete. Envoy and later milestones not started.
+**Status:** Plan approved (including zero-cost constraint and owner-only
+Git). Milestones 0–3 complete (plaintext Envoy reverse proxy). Milestone 4+
+not started.
 
 ---
 
@@ -554,11 +555,16 @@ compose: Envoy + upstream; smoke script or make target.
 
 **Acceptance:**
 
-- [ ] Request through Envoy reaches upstream.
-- [ ] Envoy config passes `envoy --mode validate` (or image equivalent).
-- [ ] No TLS required yet.
+- [x] Request through Envoy reaches upstream.
+- [x] Envoy config passes `envoy --mode validate` (or image equivalent).
+- [x] No TLS required yet.
 
 **Local:** yes · **AWS:** no
+
+**Notes (M3):** Plaintext HTTP only. Catch-all host; routes `/health`,
+`/live`, `/api/*`, `/__test__/*` to `upstream-api`; other paths get an
+explicit edge 404. Host routing to `status` deferred to M5. Admin :9901
+is control traffic (localhost-bound on host).
 
 ---
 
