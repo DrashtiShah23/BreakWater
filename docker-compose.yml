@@ -1,0 +1,38 @@
+# Breakwater local stack.
+# Milestone 2: sample upstream services only.
+# Envoy, Redis, rate limit, Prometheus, and Grafana arrive in later milestones.
+
+services:
+  upstream-api:
+    build:
+      context: ./services/upstream
+    image: breakwater-upstream:local
+    environment:
+      SURFACE: api
+      UPSTREAM_INSTANCE_ID: api-1
+      ENABLE_TEST_CONTROLS: "true"
+      LOG_LEVEL: INFO
+    ports:
+      - "${UPSTREAM_API_PORT:-9001}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  upstream-status:
+    build:
+      context: ./services/upstream
+    image: breakwater-upstream:local
+    environment:
+      SURFACE: status
+      UPSTREAM_INSTANCE_ID: status-1
+      ENABLE_TEST_CONTROLS: "true"
+      LOG_LEVEL: INFO
+    ports:
+      - "${UPSTREAM_STATUS_PORT:-9002}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
