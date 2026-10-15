@@ -1,35 +1,31 @@
 # Envoy edge configuration
 
-Milestone 4: **TLS terminates at Envoy**. Upstream remains HTTP on the
-compose network.
+Milestone 5: **host + path routing** with TLS termination at Envoy.
 
-| Listener | Port | Role |
-| --- | --- | --- |
-| `listener_https_data` | 8443 | **Data traffic** — client HTTPS; TLS terminates here |
-| `listener_http_debug` | 8080 | Optional plaintext debug only (not the intended demo path) |
-| `admin` | 9901 | **Control** — Envoy admin; host-bound to 127.0.0.1 |
+| Listener | Port | Host bind (compose) | Role |
+| --- | --- | --- | --- |
+| `listener_https_data` | 8443 | all interfaces | **Data traffic** — HTTPS; TLS terminates here |
+| `listener_http_debug` | 8080 | `127.0.0.1` | Local plaintext debug; same routing; not public |
+| `admin` | 9901 | `127.0.0.1` | **Control** — Envoy admin |
 
-## Traffic path (current)
+## Traffic path
 
 ```text
-Client --HTTPS--> Envoy:8443 --HTTP--> upstream-api:8000
+Client --HTTPS--> Envoy:8443 --HTTP--> upstream-api | upstream-status
+                 (Host selects cluster)
 ```
 
-Development certificates: see `tls/README.md` and `scripts/generate_local_certs.sh`.
+Routing contract: [`docs/routing_table.md`](../docs/routing_table.md).
 
-Still deferred: host routing (M5), rate limiting (M7–8), Prometheus (M9).
+`/__test__/*` is **not** routed through Envoy. Use upstream ports directly.
 
-## Validate config (CI-friendly, zero cost)
+Rate-limit route class (standard/sensitive) is **not** assigned by hostname.
 
-```bash
-make certs           # local only; keys are gitignored
-make validate-envoy
-```
-
-## Local run
+## Validate / run
 
 ```bash
 make certs
+make validate-envoy
 make up
 make smoke
 make test-integration

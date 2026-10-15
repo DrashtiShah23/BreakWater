@@ -1,15 +1,18 @@
-# Breakwater Envoy edge — Milestone 4: TLS termination at Envoy.
+# Breakwater Envoy edge — Milestone 5: host + path routing.
 #
-# Data path:  Client --HTTPS--> Envoy :8443 --HTTP--> upstream-api :8000
-# Control:    Envoy admin :9901 (localhost on host; not client data traffic)
+# Data path:
+#   Client --HTTPS--> Envoy :8443 (TLS terminate)
+#         --HTTP--> upstream-api | upstream-status (by Host)
 #
-# Still deferred:
-#   - Host-based routing to status (Milestone 5)
-#   - Rate limiting / Redis (Milestones 7–8)
-#   - Prometheus scrape wiring (Milestone 9)
+# Control:
+#   Admin :9901 (127.0.0.1 on host)
+#   Plaintext :8080 debug listener (127.0.0.1 on host only)
+#   Test controls: direct to upstream ports — NOT routed via Envoy
 #
-# TLS material is generated locally (see scripts/generate_local_certs.sh).
-# Development certificates only — never production credentials.
+# Rate-limit route class (standard/sensitive) is NOT encoded here.
+# Host identity ≠ failure-policy class (see docs/routing_table.md).
+#
+# Deferred: active HC polish (M6), Redis/RL (M7–8), Prometheus (M9).
 
 admin:
   address:
@@ -19,7 +22,6 @@ admin:
 
 static_resources:
   listeners:
-    # Primary data-plane listener: terminate TLS here.
     - name: listener_https_data
       address:
         socket_address:
@@ -54,8 +56,10 @@ static_resources:
                 route_config:
                   name: local_route_https
                   virtual_hosts:
-                    - name: catch_all_api
-                      domains: ["*"]
+                    - name: api_breakwater_local
+                      domains:
+                        - "api.breakwater.local"
+                        - "api.breakwater.local:*"
                       routes:
                         - match:
                             path: "/health"
@@ -68,21 +72,60 @@ static_resources:
                             cluster: upstream_api
                             timeout: 5s
                         - match:
-                            prefix: "/api/"
+                            path: "/api/v1/items"
                           route:
                             cluster: upstream_api
                             timeout: 15s
                         - match:
-                            prefix: "/__test__/"
+                            path: "/api/v2/items"
                           route:
                             cluster: upstream_api
+                            timeout: 15s
+                        - match:
+                            prefix: "/"
+                          direct_response:
+                            status: 404
+                            body:
+                              inline_string: '{"error":"unknown_path","host":"api.breakwater.local","edge":"breakwater-envoy"}'
+
+                    - name: status_breakwater_local
+                      domains:
+                        - "status.breakwater.local"
+                        - "status.breakwater.local:*"
+                      routes:
+                        - match:
+                            path: "/health"
+                          route:
+                            cluster: upstream_status
+                            timeout: 5s
+                        - match:
+                            path: "/live"
+                          route:
+                            cluster: upstream_status
+                            timeout: 5s
+                        - match:
+                            path: "/api/v1/status"
+                          route:
+                            cluster: upstream_status
                             timeout: 5s
                         - match:
                             prefix: "/"
                           direct_response:
                             status: 404
                             body:
-                              inline_string: '{"error":"unknown_path","edge":"breakwater-envoy"}'
+                              inline_string: '{"error":"unknown_path","host":"status.breakwater.local","edge":"breakwater-envoy"}'
+
+                    # Last: any other Host header.
+                    - name: unknown_host
+                      domains: ["*"]
+                      routes:
+                        - match:
+                            prefix: "/"
+                          direct_response:
+                            status: 404
+                            body:
+                              inline_string: '{"error":"unknown_host","edge":"breakwater-envoy"}'
+
                 http_filters:
                   - name: envoy.filters.http.router
                     typed_config:
@@ -94,9 +137,9 @@ static_resources:
                       log_format:
                         text_format_source:
                           inline_string: |
-                            [data-https] %START_TIME% %REQ(:METHOD)% req_id=%REQ(X-REQUEST-ID)% path=%REQ(:PATH)% resp=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% upstream=%UPSTREAM_HOST% duration_ms=%DURATION%
+                            [data-https] %START_TIME% %REQ(:METHOD)% host=%REQ(:AUTHORITY)% req_id=%REQ(X-REQUEST-ID)% path=%REQ(:PATH)% resp=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% upstream=%UPSTREAM_HOST% duration_ms=%DURATION%
 
-    # Optional plaintext listener for local debugging only (not the intended demo path).
+    # Local-dev plaintext debug only (compose binds 127.0.0.1). Same routing contract; no /__test__/.
     - name: listener_http_debug
       address:
         socket_address:
@@ -119,8 +162,10 @@ static_resources:
                 route_config:
                   name: local_route_http_debug
                   virtual_hosts:
-                    - name: catch_all_api_debug
-                      domains: ["*"]
+                    - name: api_breakwater_local_debug
+                      domains:
+                        - "api.breakwater.local"
+                        - "api.breakwater.local:*"
                       routes:
                         - match:
                             path: "/health"
@@ -133,21 +178,56 @@ static_resources:
                             cluster: upstream_api
                             timeout: 5s
                         - match:
-                            prefix: "/api/"
+                            path: "/api/v1/items"
                           route:
                             cluster: upstream_api
                             timeout: 15s
                         - match:
-                            prefix: "/__test__/"
+                            path: "/api/v2/items"
                           route:
                             cluster: upstream_api
+                            timeout: 15s
+                        - match:
+                            prefix: "/"
+                          direct_response:
+                            status: 404
+                            body:
+                              inline_string: '{"error":"unknown_path","host":"api.breakwater.local","edge":"breakwater-envoy"}'
+                    - name: status_breakwater_local_debug
+                      domains:
+                        - "status.breakwater.local"
+                        - "status.breakwater.local:*"
+                      routes:
+                        - match:
+                            path: "/health"
+                          route:
+                            cluster: upstream_status
+                            timeout: 5s
+                        - match:
+                            path: "/live"
+                          route:
+                            cluster: upstream_status
+                            timeout: 5s
+                        - match:
+                            path: "/api/v1/status"
+                          route:
+                            cluster: upstream_status
                             timeout: 5s
                         - match:
                             prefix: "/"
                           direct_response:
                             status: 404
                             body:
-                              inline_string: '{"error":"unknown_path","edge":"breakwater-envoy"}'
+                              inline_string: '{"error":"unknown_path","host":"status.breakwater.local","edge":"breakwater-envoy"}'
+                    - name: unknown_host_debug
+                      domains: ["*"]
+                      routes:
+                        - match:
+                            prefix: "/"
+                          direct_response:
+                            status: 404
+                            body:
+                              inline_string: '{"error":"unknown_host","edge":"breakwater-envoy"}'
                 http_filters:
                   - name: envoy.filters.http.router
                     typed_config:
@@ -159,7 +239,6 @@ static_resources:
       type: STRICT_DNS
       dns_lookup_family: V4_ONLY
       lb_policy: ROUND_ROBIN
-      # Upstream remains plaintext HTTP on the compose network (no app-side TLS).
       load_assignment:
         cluster_name: upstream_api
         endpoints:
@@ -168,4 +247,19 @@ static_resources:
                   address:
                     socket_address:
                       address: upstream-api
+                      port_value: 8000
+
+    - name: upstream_status
+      connect_timeout: 2s
+      type: STRICT_DNS
+      dns_lookup_family: V4_ONLY
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: upstream_status
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: upstream-status
                       port_value: 8000
