@@ -1,6 +1,6 @@
 # Breakwater local stack (zero-cost).
-# Milestone 3: Envoy plaintext reverse proxy + sample upstreams.
-# TLS, host routing, Redis, rate limit, Prometheus, Grafana: later milestones.
+# Milestone 4: Envoy terminates TLS; upstreams remain HTTP on the compose network.
+# Host routing, Redis, rate limit, Prometheus, Grafana: later milestones.
 
 services:
   upstream-api:
@@ -58,6 +58,7 @@ services:
         condition: service_healthy
     volumes:
       - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./envoy/tls:/etc/envoy/tls:ro
     command:
       - /usr/local/bin/envoy
       - -c
@@ -65,7 +66,9 @@ services:
       - --log-level
       - info
     ports:
-      # Data-plane listener (client traffic through the edge).
+      # Primary data-plane listener (TLS terminates at Envoy).
+      - "${ENVOY_HTTPS_PORT:-8443}:8443"
+      # Optional plaintext debug listener (not the intended demo path).
       - "${ENVOY_HTTP_PORT:-8080}:8080"
       # Control-plane admin (bind to localhost on the host).
       - "127.0.0.1:${ENVOY_ADMIN_PORT:-9901}:9901"

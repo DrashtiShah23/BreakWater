@@ -1,14 +1,15 @@
-# Breakwater Envoy edge — Milestone 3: plaintext HTTP reverse proxy.
+# Breakwater Envoy edge — Milestone 4: TLS termination at Envoy.
 #
-# Scope for this milestone:
-#   - Data traffic: client HTTP -> Envoy :8080 -> upstream-api :8000
-#   - Control: Envoy admin :9901 (not for client data-plane load)
-#   - No TLS (Milestone 4)
-#   - No host/path virtual hosting beyond a single catch-all (Milestone 5)
-#   - No rate limiting / Redis (Milestones 7–8)
-#   - No Prometheus scrape wiring (Milestone 9)
+# Data path:  Client --HTTPS--> Envoy :8443 --HTTP--> upstream-api :8000
+# Control:    Envoy admin :9901 (localhost on host; not client data traffic)
 #
-# Configuration is intentional static YAML for reviewability.
+# Still deferred:
+#   - Host-based routing to status (Milestone 5)
+#   - Rate limiting / Redis (Milestones 7–8)
+#   - Prometheus scrape wiring (Milestone 9)
+#
+# TLS material is generated locally (see scripts/generate_local_certs.sh).
+# Development certificates only — never production credentials.
 
 admin:
   address:
@@ -18,17 +19,28 @@ admin:
 
 static_resources:
   listeners:
-    - name: listener_http_data
+    # Primary data-plane listener: terminate TLS here.
+    - name: listener_https_data
       address:
         socket_address:
           address: 0.0.0.0
-          port_value: 8080
+          port_value: 8443
       filter_chains:
-        - filters:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              common_tls_context:
+                tls_certificates:
+                  - certificate_chain:
+                      filename: /etc/envoy/tls/server.crt
+                    private_key:
+                      filename: /etc/envoy/tls/server.key
+          filters:
             - name: envoy.filters.network.http_connection_manager
               typed_config:
                 "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-                stat_prefix: ingress_http
+                stat_prefix: ingress_https
                 codec_type: AUTO
                 generate_request_id: true
                 preserve_external_request_id: true
@@ -36,17 +48,15 @@ static_resources:
                   typed_config:
                     "@type": type.googleapis.com/envoy.extensions.request_id.uuid.v3.UuidRequestIdConfig
                     pack_trace_reason: false
-                # Explicit empty config avoids relying on the transitional RFC1918 default.
                 internal_address_config: {}
                 common_http_protocol_options:
                   idle_timeout: 60s
                 route_config:
-                  name: local_route
+                  name: local_route_https
                   virtual_hosts:
                     - name: catch_all_api
                       domains: ["*"]
                       routes:
-                        # Explicit health passthrough to the upstream readiness probe.
                         - match:
                             path: "/health"
                           route:
@@ -57,19 +67,16 @@ static_resources:
                           route:
                             cluster: upstream_api
                             timeout: 5s
-                        # Data-plane sample API (v1/v2). Broader host/path matrix is Milestone 5.
                         - match:
                             prefix: "/api/"
                           route:
                             cluster: upstream_api
                             timeout: 15s
-                        # Test-control surface (development only). Not client product traffic.
                         - match:
                             prefix: "/__test__/"
                           route:
                             cluster: upstream_api
                             timeout: 5s
-                        # Unknown paths: explicit 404 from the edge (not silent upstream fallthrough).
                         - match:
                             prefix: "/"
                           direct_response:
@@ -87,8 +94,64 @@ static_resources:
                       log_format:
                         text_format_source:
                           inline_string: |
-                            [data] %START_TIME% %REQ(:METHOD)% req_id=%REQ(X-REQUEST-ID)% path=%REQ(:PATH)% resp=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% upstream=%UPSTREAM_HOST% duration_ms=%DURATION%
+                            [data-https] %START_TIME% %REQ(:METHOD)% req_id=%REQ(X-REQUEST-ID)% path=%REQ(:PATH)% resp=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% upstream=%UPSTREAM_HOST% duration_ms=%DURATION%
 
+    # Optional plaintext listener for local debugging only (not the intended demo path).
+    - name: listener_http_debug
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 8080
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_http_debug
+                codec_type: AUTO
+                generate_request_id: true
+                preserve_external_request_id: true
+                request_id_extension:
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.request_id.uuid.v3.UuidRequestIdConfig
+                    pack_trace_reason: false
+                internal_address_config: {}
+                route_config:
+                  name: local_route_http_debug
+                  virtual_hosts:
+                    - name: catch_all_api_debug
+                      domains: ["*"]
+                      routes:
+                        - match:
+                            path: "/health"
+                          route:
+                            cluster: upstream_api
+                            timeout: 5s
+                        - match:
+                            path: "/live"
+                          route:
+                            cluster: upstream_api
+                            timeout: 5s
+                        - match:
+                            prefix: "/api/"
+                          route:
+                            cluster: upstream_api
+                            timeout: 15s
+                        - match:
+                            prefix: "/__test__/"
+                          route:
+                            cluster: upstream_api
+                            timeout: 5s
+                        - match:
+                            prefix: "/"
+                          direct_response:
+                            status: 404
+                            body:
+                              inline_string: '{"error":"unknown_path","edge":"breakwater-envoy"}'
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
   clusters:
     - name: upstream_api
@@ -96,6 +159,7 @@ static_resources:
       type: STRICT_DNS
       dns_lookup_family: V4_ONLY
       lb_policy: ROUND_ROBIN
+      # Upstream remains plaintext HTTP on the compose network (no app-side TLS).
       load_assignment:
         cluster_name: upstream_api
         endpoints:
