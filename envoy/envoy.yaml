@@ -1,0 +1,107 @@
+# Breakwater Envoy edge — Milestone 3: plaintext HTTP reverse proxy.
+#
+# Scope for this milestone:
+#   - Data traffic: client HTTP -> Envoy :8080 -> upstream-api :8000
+#   - Control: Envoy admin :9901 (not for client data-plane load)
+#   - No TLS (Milestone 4)
+#   - No host/path virtual hosting beyond a single catch-all (Milestone 5)
+#   - No rate limiting / Redis (Milestones 7–8)
+#   - No Prometheus scrape wiring (Milestone 9)
+#
+# Configuration is intentional static YAML for reviewability.
+
+admin:
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 9901
+
+static_resources:
+  listeners:
+    - name: listener_http_data
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 8080
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_http
+                codec_type: AUTO
+                generate_request_id: true
+                preserve_external_request_id: true
+                request_id_extension:
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.request_id.uuid.v3.UuidRequestIdConfig
+                    pack_trace_reason: false
+                # Explicit empty config avoids relying on the transitional RFC1918 default.
+                internal_address_config: {}
+                common_http_protocol_options:
+                  idle_timeout: 60s
+                route_config:
+                  name: local_route
+                  virtual_hosts:
+                    - name: catch_all_api
+                      domains: ["*"]
+                      routes:
+                        # Explicit health passthrough to the upstream readiness probe.
+                        - match:
+                            path: "/health"
+                          route:
+                            cluster: upstream_api
+                            timeout: 5s
+                        - match:
+                            path: "/live"
+                          route:
+                            cluster: upstream_api
+                            timeout: 5s
+                        # Data-plane sample API (v1/v2). Broader host/path matrix is Milestone 5.
+                        - match:
+                            prefix: "/api/"
+                          route:
+                            cluster: upstream_api
+                            timeout: 15s
+                        # Test-control surface (development only). Not client product traffic.
+                        - match:
+                            prefix: "/__test__/"
+                          route:
+                            cluster: upstream_api
+                            timeout: 5s
+                        # Unknown paths: explicit 404 from the edge (not silent upstream fallthrough).
+                        - match:
+                            prefix: "/"
+                          direct_response:
+                            status: 404
+                            body:
+                              inline_string: '{"error":"unknown_path","edge":"breakwater-envoy"}'
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                access_log:
+                  - name: envoy.access_loggers.stdout
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                      log_format:
+                        text_format_source:
+                          inline_string: |
+                            [data] %START_TIME% %REQ(:METHOD)% req_id=%REQ(X-REQUEST-ID)% path=%REQ(:PATH)% resp=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% upstream=%UPSTREAM_HOST% duration_ms=%DURATION%
+
+
+  clusters:
+    - name: upstream_api
+      connect_timeout: 2s
+      type: STRICT_DNS
+      dns_lookup_family: V4_ONLY
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: upstream_api
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: upstream-api
+                      port_value: 8000

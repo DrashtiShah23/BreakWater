@@ -1,6 +1,6 @@
-# Breakwater local stack.
-# Milestone 2: sample upstream services only.
-# Envoy, Redis, rate limit, Prometheus, and Grafana arrive in later milestones.
+# Breakwater local stack (zero-cost).
+# Milestone 3: Envoy plaintext reverse proxy + sample upstreams.
+# TLS, host routing, Redis, rate limit, Prometheus, Grafana: later milestones.
 
 services:
   upstream-api:
@@ -15,15 +15,23 @@ services:
     ports:
       - "${UPSTREAM_API_PORT:-9001}:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
       interval: 5s
       timeout: 3s
       retries: 5
 
+  # Same image as upstream-api (built once). Avoid concurrent dual-build races.
   upstream-status:
-    build:
-      context: ./services/upstream
     image: breakwater-upstream:local
+    depends_on:
+      upstream-api:
+        condition: service_started
     environment:
       SURFACE: status
       UPSTREAM_INSTANCE_ID: status-1
@@ -32,7 +40,34 @@ services:
     ports:
       - "${UPSTREAM_STATUS_PORT:-9002}:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
       interval: 5s
       timeout: 3s
       retries: 5
+
+  envoy:
+    image: envoyproxy/envoy:v1.31.5
+    depends_on:
+      upstream-api:
+        condition: service_healthy
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    command:
+      - /usr/local/bin/envoy
+      - -c
+      - /etc/envoy/envoy.yaml
+      - --log-level
+      - info
+    ports:
+      # Data-plane listener (client traffic through the edge).
+      - "${ENVOY_HTTP_PORT:-8080}:8080"
+      # Control-plane admin (bind to localhost on the host).
+      - "127.0.0.1:${ENVOY_ADMIN_PORT:-9901}:9901"
+    # Official Envoy image has no curl/wget; readiness is polled from the host
+    # via admin /ready in smoke and integration tests.
