@@ -23,3 +23,10 @@ incoming traffic.
 - Certificate distribution to EC2 must be handled at demo time (user-data,
   SSM, or manual copy) — documented in operations later.
 - Interview defense stays consistent: L4 NLB vs L7 Envoy roles are clear.
+
+## Implementation status (Milestone 4)
+
+- Local path: `Client --HTTPS--> Envoy:8443 --HTTP--> upstream`.
+- Certs via `scripts/generate_local_certs.sh` / `make certs` (dev only).
+- Private keys gitignored; never required in `git status` for a clean tree.
+- Optional Envoy `:8080` plaintext remains for debug only.

@@ -7,8 +7,8 @@ No benchmark numbers, AWS validation results, or integration claims appear
 here as completed work. Those must be earned by later milestones.
 
 **Status:** Plan approved (including zero-cost constraint and owner-only
-Git). Milestones 0–3 complete (plaintext Envoy reverse proxy). Milestone 4+
-not started.
+Git). Milestones 0–4 complete (TLS terminates at Envoy). Milestone 5+ not
+started.
 
 ---
 
@@ -575,13 +575,17 @@ is control traffic (localhost-bound on host).
 
 **Acceptance:**
 
-- [ ] HTTPS to Envoy succeeds with generated dev certs.
-- [ ] README states certs are development-only.
-- [ ] `git status` never requires committing private keys.
-- [ ] Document where TLS terminates and that upstream is HTTP on the
+- [x] HTTPS to Envoy succeeds with generated dev certs.
+- [x] README states certs are development-only.
+- [x] `git status` never requires committing private keys.
+- [x] Document where TLS terminates and that upstream is HTTP on the
       compose network (and how mTLS could be added later).
 
 **Local:** yes · **AWS:** no
+
+**Notes (M4):** Primary data listener `:8443` (HTTPS). Upstream hop remains
+plaintext HTTP. Admin `:9901` stays control/plaintext on localhost. Optional
+`:8080` plaintext debug listener only.
 
 ---
 

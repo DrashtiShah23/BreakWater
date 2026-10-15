@@ -45,20 +45,23 @@ control-plane workflow product for changing network infrastructure.
 
 ## Logical diagram
 
-### Milestone 3 (implemented now)
+### Milestone 4 (implemented now)
 
 ```mermaid
 flowchart LR
   subgraph dataPlane ["Data traffic"]
-    Client -->|HTTP :8080| Envoy
+    Client -->|HTTPS :8443| Envoy
     Envoy -->|HTTP :8000| API["upstream-api"]
   end
   subgraph controlPlane ["Control traffic"]
-    Admin[Operator / tests] -->|admin :9901| Envoy
-    Admin -->|/__test__/* direct or via edge| API
+    Admin[Operator / tests] -->|admin :9901 plaintext| Envoy
+    Admin -->|/__test__/* direct| API
     StatusDirect["upstream-status :9002"] -.->|direct until M5 host routing| Admin
   end
 ```
+
+TLS terminates at Envoy. Upstream remains HTTP on the compose network.
+Development certificates only (`make certs`); private keys are gitignored.
 
 ### Intended full architecture (later milestones)
 
@@ -116,11 +119,12 @@ observability traffic**.
 
 ### Envoy
 
-**Milestone 3:** plaintext HTTP reverse proxy to `upstream-api`, request
-ID preservation, stdout access logs, admin port for control.
+**Milestone 4:** HTTPS reverse proxy to `upstream-api` with TLS
+termination at Envoy, request ID preservation, stdout access logs, admin
+port for control. Upstream hop is plaintext HTTP.
 
-**Later:** TLS termination, host/path routing, timeouts, conservative
-retries, active health checking, rate-limit filter, Prometheus metrics.
+**Later:** host/path routing, timeouts, conservative retries, active
+health checking, rate-limit filter, Prometheus metrics.
 
 ### Rate-limit service + Redis
 

@@ -13,10 +13,13 @@ change-management system. Those are different problems.
 
 ## Status
 
-**Milestone 3 — plaintext Envoy reverse proxy.** Client HTTP traffic can
-reach `upstream-api` through Envoy on port 8080. TLS, host-based routing,
-Redis, rate limiting, Prometheus, Grafana, Terraform apply, and benchmarks
-are **not** implemented yet.
+**Milestone 4 — TLS terminates at Envoy.** Client HTTPS traffic reaches
+`upstream-api` through Envoy on port 8443; the Envoy→upstream hop stays
+HTTP. Host-based routing, Redis, rate limiting, Prometheus, Grafana,
+Terraform apply, and benchmarks are **not** implemented yet.
+
+Development certificates are generated locally via `make certs` and are
+**not** production credentials. Private keys are gitignored.
 
 **Cost:** The project is designed to be completed at **zero cloud spend**.
 Real AWS apply is optional validation only—never required for Definition
@@ -75,21 +78,26 @@ Full write-up: [`docs/architecture.md`](docs/architecture.md).
 ```bash
 make bootstrap
 cp -n .env.example .env
+make certs              # local dev certs only; keys are gitignored
 make validate-envoy
 make up
-make smoke              # functional checks via Envoy (not a benchmark)
+make smoke              # HTTPS functional checks (not a benchmark)
 make test-upstream
 make test-integration
 ```
 
-Data path: `http://127.0.0.1:8080/api/v1/items` → Envoy → `upstream-api`.
+Data path: `https://127.0.0.1:8443/api/v1/items` → Envoy (TLS end) → HTTP `upstream-api`.
+
+```bash
+curl --cacert envoy/tls/ca.crt https://127.0.0.1:8443/api/v1/items
+```
 
 Test controls (local only; disable with `ENABLE_TEST_CONTROLS=false`):
 
 ```bash
 curl -s -X POST http://127.0.0.1:9001/__test__/errors \
   -H 'content-type: application/json' -d '{"mode":"http_500","count":1}'
-curl -s http://127.0.0.1:8080/api/v1/items
+curl -s --cacert envoy/tls/ca.crt https://127.0.0.1:8443/api/v1/items
 curl -s -X POST http://127.0.0.1:9001/__test__/reset
 ```
 
