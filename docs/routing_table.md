@@ -8,7 +8,7 @@ compose network.
 
 | Host (`Host` / `:authority`) | Upstream cluster | Compose service | Surface |
 | --- | --- | --- | --- |
-| `api.breakwater.local` | `upstream_api` | `upstream-api` | versioned items API |
+| `api.breakwater.local` | `upstream_api` | `upstream-api`, `upstream-api-2` | versioned items API (2 members for HC demos) |
 | `status.breakwater.local` | `upstream_status` | `upstream-status` | small status surface |
 | any other host | — | — | edge `404` `unknown_host` |
 

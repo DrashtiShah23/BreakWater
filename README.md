@@ -13,11 +13,11 @@ change-management system. Those are different problems.
 
 ## Status
 
-**Milestone 5 — host and path routing.** HTTPS clients reach versioned API
-or status surfaces via `Host: api.breakwater.local` /
-`status.breakwater.local`. TLS still terminates at Envoy; upstream hops
-remain HTTP. Redis, rate limiting, Prometheus, Grafana, Terraform apply,
-and benchmarks are **not** implemented yet.
+**Milestone 6 — health, timeouts, retries.** Envoy actively health-checks
+upstreams, removes unhealthy members, recovers them automatically, and
+applies bounded transport-only retries on idempotent item GETs. Redis,
+rate limiting, Prometheus, Grafana, Terraform apply, and benchmarks are
+**not** implemented yet.
 
 Development certificates are generated locally via `make certs` and are
 **not** production credentials. Private keys are gitignored. Routing

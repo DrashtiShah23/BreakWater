@@ -7,8 +7,8 @@ No benchmark numbers, AWS validation results, or integration claims appear
 here as completed work. Those must be earned by later milestones.
 
 **Status:** Plan approved (including zero-cost constraint and owner-only
-Git). Milestones 0–5 complete (host + path routing). Milestone 6+ not
-started.
+Git). Milestones 0–6 complete (health checks / timeouts / retries).
+Milestone 7+ not started.
 
 ---
 
@@ -50,6 +50,25 @@ At the end of every milestone the agent must:
 Phrases like “finish the milestone,” “proceed,” or “continue” are **not**
 permission to commit. This rule overrides any earlier plan language that
 implied the agent should commit automatically.
+
+### Permanent authorship and attribution rule (hard requirement)
+
+**The repository owner is the sole author and committer of repository
+commits.**
+
+Never add any of the following to commit messages, Git metadata, source
+headers, documentation, patches, or generated files:
+
+- `Co-authored-by`
+- `Signed-off-by` (unless the owner explicitly requests it for their own
+  sign-off)
+- `Generated-by`
+- Cursor / Cursor Agent
+- Claude / other model or product names used as attribution
+- “AI”, “AI-assisted”, or any tool/agent authorship credit
+
+The agent must not stage, commit, push, rewrite history, or modify Git
+attribution. This rule applies permanently to every future milestone.
 
 ---
 
@@ -619,14 +638,17 @@ where practical; timeout policy; conservative retry policy + ADR note;
 
 **Acceptance:**
 
-- [ ] Stopping one upstream removes it from serving (verified by
+- [x] Stopping one upstream removes it from serving (verified by
       traffic/metrics or admin endpoint observation).
-- [ ] Restoration brings it back without manual Envoy rewrite.
-- [ ] Timeout behavior verified with injected latency.
-- [ ] Failure test documents observed 5xx/timeout behavior (no invented
+- [x] Restoration brings it back without manual Envoy rewrite.
+- [x] Timeout behavior verified with injected latency.
+- [x] Failure test documents observed 5xx/timeout behavior (no invented
       numbers required beyond pass/fail assertions).
 
 **Local:** yes · **AWS:** no
+
+**Notes (M6):** Dual `upstream_api` members; HC on `/health`; transport-only
+retries on GET items; no HTTP 5xx retries; ADR 0006 + `docs/failure_model.md`.
 
 ---
 
@@ -1025,6 +1047,9 @@ Carried forward from the spec and §0; binding for later milestones:
   (ADR or plan amendment) before changing design.
 - **Git ownership (§0.0):** agent never commits, pushes, or stages unless
   explicitly told to `git add`; owner alone owns history.
+- **Authorship (§0.0):** no Co-authored-by / Generated-by / Cursor /
+  Claude / AI / tool attribution in commits, metadata, headers, docs,
+  patches, or generated files; owner is sole author and committer.
 - **Zero-cost DoD is binding (§0.1).** No required paid cloud usage.
 - Do not invent benchmark, security, or AWS results.
 - Do not claim AWS deployment from Terraform alone (§0.2).
@@ -1094,3 +1119,4 @@ as shown. Optional cloud apply never gates “done.”
 | 6 | Resume hypotheses as targets? | Do not optimize toward them; replace with measured results only |
 | 7 | Must spend on AWS to finish? | **No.** Zero-cost completeness is mandatory (§0.1) |
 | 8 | Who commits / pushes? | **Owner only.** Agent never commits or pushes (§0.0) |
+| 9 | Commit / file attribution? | **Owner sole author.** No Co-authored-by, Generated-by, Cursor, Claude, AI, or tool credit (§0.0) |

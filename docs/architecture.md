@@ -45,25 +45,31 @@ control-plane workflow product for changing network infrastructure.
 
 ## Logical diagram
 
-### Milestone 5 (implemented now)
+### Milestone 6 (implemented now)
 
 ```mermaid
 flowchart LR
   subgraph dataPlane ["Data traffic"]
     Client -->|HTTPS :8443 Host api| Envoy
     Client -->|HTTPS :8443 Host status| Envoy
-    Envoy -->|HTTP| API["upstream-api"]
-    Envoy -->|HTTP| ST["upstream-status"]
+    Envoy -->|HTTP healthy only| API1["upstream-api"]
+    Envoy -->|HTTP healthy only| API2["upstream-api-2"]
+    Envoy -->|HTTP healthy only| ST["upstream-status"]
   end
   subgraph controlPlane ["Control traffic"]
     Admin[Operator / tests] -->|admin :9901| Envoy
-    Admin -->|/__test__/* direct :9001/:9002| API
-    Admin -->|/__test__/* direct| ST
+    Envoy -->|active HC GET /health| API1
+    Envoy -->|active HC GET /health| API2
+    Envoy -->|active HC GET /health| ST
+    Admin -->|/__test__/* direct :9001/:9003| API1
+    Admin -->|/__test__/* direct| API2
+    Admin -->|/__test__/* direct :9002| ST
   end
 ```
 
-TLS terminates at Envoy. Host selects upstream. Upstream remains HTTP.
-`/__test__/*` is not Envoy-routed. See `docs/routing_table.md`.
+TLS terminates at Envoy. Active health checks remove unhealthy members.
+Bounded transport-only retries on GET items. See `docs/failure_model.md`
+and `docs/adr/0006-retry-timeout-health.md`.
 
 ### Intended full architecture (later milestones)
 
