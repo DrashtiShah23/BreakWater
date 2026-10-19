@@ -1,5 +1,5 @@
 # Breakwater local stack (zero-cost).
-# Milestone 5: Envoy TLS + host/path routing; upstreams remain HTTP.
+# Milestone 6: Envoy TLS + routing + active health checks / timeouts / retries.
 # Redis, rate limit, Prometheus, Grafana: later milestones.
 
 services:
@@ -26,7 +26,31 @@ services:
       timeout: 3s
       retries: 5
 
-  # Same image as upstream-api (built once). Avoid concurrent dual-build races.
+  # Second API instance for active health-check removal / recovery demos.
+  upstream-api-2:
+    image: breakwater-upstream:local
+    depends_on:
+      upstream-api:
+        condition: service_started
+    environment:
+      SURFACE: api
+      UPSTREAM_INSTANCE_ID: api-2
+      ENABLE_TEST_CONTROLS: "true"
+      LOG_LEVEL: INFO
+    ports:
+      - "${UPSTREAM_API_2_PORT:-9003}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   upstream-status:
     image: breakwater-upstream:local
     depends_on:
@@ -56,6 +80,10 @@ services:
     depends_on:
       upstream-api:
         condition: service_healthy
+      upstream-api-2:
+        condition: service_healthy
+      upstream-status:
+        condition: service_healthy
     volumes:
       - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
       - ./envoy/tls:/etc/envoy/tls:ro
@@ -66,11 +94,6 @@ services:
       - --log-level
       - info
     ports:
-      # Primary data-plane listener (TLS terminates at Envoy).
       - "${ENVOY_HTTPS_PORT:-8443}:8443"
-      # Local-dev plaintext debug only (same routing contract; not public).
       - "127.0.0.1:${ENVOY_HTTP_PORT:-8080}:8080"
-      # Control-plane admin (bind to localhost on the host).
       - "127.0.0.1:${ENVOY_ADMIN_PORT:-9901}:9901"
-    # Official Envoy image has no curl/wget; readiness is polled from the host
-    # via admin /ready in smoke and integration tests.

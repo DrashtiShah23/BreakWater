@@ -64,11 +64,11 @@ ensure-certs:
 
 up: ensure-certs
 	$(COMPOSE) build upstream-api
-	$(COMPOSE) up -d upstream-api upstream-status envoy
+	$(COMPOSE) up -d upstream-api upstream-api-2 upstream-status envoy
 
 up-upstream:
 	$(COMPOSE) build upstream-api
-	$(COMPOSE) up -d upstream-api upstream-status
+	$(COMPOSE) up -d upstream-api upstream-api-2 upstream-status
 
 down:
 	$(COMPOSE) down
@@ -113,20 +113,24 @@ test test-upstream:
 test-integration: ensure-certs
 	@echo "Requires: make up (Envoy + upstreams). Skipping is not a pass."
 	$(PYTHON) -m pytest -q tests/integration -m "not slow"
-	@echo "Optional upstream-down path: $(PYTHON) -m pytest -q tests/integration -m slow"
+
+test-integration-slow: ensure-certs
+	@echo "Requires: make up. Stops/starts compose services."
+	$(PYTHON) -m pytest -q tests/integration -m slow
+
+test-integration-all: test-integration test-integration-slow
 
 bench:
 	@echo "TODO(M12): baseline → Envoy (no RL) → Envoy (RL); calculate edge overhead"
 
 fail inject-failure:
-	@echo "Upstream controls (local, ENABLE_TEST_CONTROLS=true):"
-	@echo "  curl -X POST http://127.0.0.1:9001/__test__/latency -H 'content-type: application/json' -d '{\"delay_ms\":200}'"
-	@echo "  curl -X POST http://127.0.0.1:9001/__test__/errors -H 'content-type: application/json' -d '{\"mode\":\"http_500\",\"count\":5}'"
-	@echo "  curl -X POST http://127.0.0.1:9001/__test__/health -H 'content-type: application/json' -d '{\"healthy\":false}'"
-	@echo "  curl -X POST http://127.0.0.1:9001/__test__/reset"
-	@echo "Then observe via HTTPS Envoy:"
-	@echo "  curl --cacert envoy/tls/ca.crt --resolve api.breakwater.local:$(ENVOY_HTTPS_PORT):127.0.0.1 \\"
-	@echo "    https://api.breakwater.local:$(ENVOY_HTTPS_PORT)/api/v1/items"
+	@echo "Use scripts/inject_failure.sh (direct upstream ports only):"
+	@echo "  ./scripts/inject_failure.sh unhealthy api-2"
+	@echo "  ./scripts/inject_failure.sh healthy api-2"
+	@echo "  ./scripts/inject_failure.sh latency api-1 4000"
+	@echo "  ./scripts/inject_failure.sh errors api-1 http_500 5"
+	@echo "  ./scripts/inject_failure.sh stop upstream-api-2"
+	@echo "Inspect HC: curl -s http://127.0.0.1:$(ENVOY_ADMIN_PORT)/clusters | grep health"
 
 fmt:
 	cd $(UPSTREAM_DIR) && $(PYTHON) -m ruff format app tests

@@ -1,18 +1,15 @@
-# Breakwater Envoy edge — Milestone 5: host + path routing.
+# Breakwater Envoy edge — Milestone 6: health checks, timeouts, retries.
 #
 # Data path:
 #   Client --HTTPS--> Envoy :8443 (TLS terminate)
-#         --HTTP--> upstream-api | upstream-status (by Host)
+#         --HTTP--> healthy upstream-api | upstream-status members
 #
 # Control:
-#   Admin :9901 (127.0.0.1 on host)
-#   Plaintext :8080 debug listener (127.0.0.1 on host only)
-#   Test controls: direct to upstream ports — NOT routed via Envoy
+#   Admin :9901 — inspect /clusters health
+#   Active HC GET /health — not client data traffic
+#   /__test__/* — direct upstream ports only (not Envoy-routed)
 #
-# Rate-limit route class (standard/sensitive) is NOT encoded here.
-# Host identity ≠ failure-policy class (see docs/routing_table.md).
-#
-# Deferred: active HC polish (M6), Redis/RL (M7–8), Prometheus (M9).
+# See docs/adr/0006-retry-timeout-health.md and docs/failure_model.md.
 
 admin:
   address:
@@ -46,6 +43,7 @@ static_resources:
                 codec_type: AUTO
                 generate_request_id: true
                 preserve_external_request_id: true
+                always_set_request_id_in_response: true
                 request_id_extension:
                   typed_config:
                     "@type": type.googleapis.com/envoy.extensions.request_id.uuid.v3.UuidRequestIdConfig
@@ -65,22 +63,37 @@ static_resources:
                             path: "/health"
                           route:
                             cluster: upstream_api
-                            timeout: 5s
+                            timeout: 2s
                         - match:
                             path: "/live"
                           route:
                             cluster: upstream_api
-                            timeout: 5s
+                            timeout: 2s
+                        # Idempotent GET — bounded transport retries only (not HTTP 5xx).
                         - match:
                             path: "/api/v1/items"
                           route:
                             cluster: upstream_api
-                            timeout: 15s
+                            timeout: 3s
+                            retry_policy:
+                              retry_on: connect-failure,refused-stream,reset
+                              num_retries: 2
+                              per_try_timeout: 1s
+                              retry_back_off:
+                                base_interval: 0.05s
+                                max_interval: 0.25s
                         - match:
                             path: "/api/v2/items"
                           route:
                             cluster: upstream_api
-                            timeout: 15s
+                            timeout: 3s
+                            retry_policy:
+                              retry_on: connect-failure,refused-stream,reset
+                              num_retries: 2
+                              per_try_timeout: 1s
+                              retry_back_off:
+                                base_interval: 0.05s
+                                max_interval: 0.25s
                         - match:
                             prefix: "/"
                           direct_response:
@@ -97,17 +110,17 @@ static_resources:
                             path: "/health"
                           route:
                             cluster: upstream_status
-                            timeout: 5s
+                            timeout: 2s
                         - match:
                             path: "/live"
                           route:
                             cluster: upstream_status
-                            timeout: 5s
+                            timeout: 2s
                         - match:
                             path: "/api/v1/status"
                           route:
                             cluster: upstream_status
-                            timeout: 5s
+                            timeout: 2s
                         - match:
                             prefix: "/"
                           direct_response:
@@ -115,7 +128,6 @@ static_resources:
                             body:
                               inline_string: '{"error":"unknown_path","host":"status.breakwater.local","edge":"breakwater-envoy"}'
 
-                    # Last: any other Host header.
                     - name: unknown_host
                       domains: ["*"]
                       routes:
@@ -139,7 +151,6 @@ static_resources:
                           inline_string: |
                             [data-https] %START_TIME% %REQ(:METHOD)% host=%REQ(:AUTHORITY)% req_id=%REQ(X-REQUEST-ID)% path=%REQ(:PATH)% resp=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% upstream=%UPSTREAM_HOST% duration_ms=%DURATION%
 
-    # Local-dev plaintext debug only (compose binds 127.0.0.1). Same routing contract; no /__test__/.
     - name: listener_http_debug
       address:
         socket_address:
@@ -154,6 +165,7 @@ static_resources:
                 codec_type: AUTO
                 generate_request_id: true
                 preserve_external_request_id: true
+                always_set_request_id_in_response: true
                 request_id_extension:
                   typed_config:
                     "@type": type.googleapis.com/envoy.extensions.request_id.uuid.v3.UuidRequestIdConfig
@@ -171,22 +183,36 @@ static_resources:
                             path: "/health"
                           route:
                             cluster: upstream_api
-                            timeout: 5s
+                            timeout: 2s
                         - match:
                             path: "/live"
                           route:
                             cluster: upstream_api
-                            timeout: 5s
+                            timeout: 2s
                         - match:
                             path: "/api/v1/items"
                           route:
                             cluster: upstream_api
-                            timeout: 15s
+                            timeout: 3s
+                            retry_policy:
+                              retry_on: connect-failure,refused-stream,reset
+                              num_retries: 2
+                              per_try_timeout: 1s
+                              retry_back_off:
+                                base_interval: 0.05s
+                                max_interval: 0.25s
                         - match:
                             path: "/api/v2/items"
                           route:
                             cluster: upstream_api
-                            timeout: 15s
+                            timeout: 3s
+                            retry_policy:
+                              retry_on: connect-failure,refused-stream,reset
+                              num_retries: 2
+                              per_try_timeout: 1s
+                              retry_back_off:
+                                base_interval: 0.05s
+                                max_interval: 0.25s
                         - match:
                             prefix: "/"
                           direct_response:
@@ -202,17 +228,17 @@ static_resources:
                             path: "/health"
                           route:
                             cluster: upstream_status
-                            timeout: 5s
+                            timeout: 2s
                         - match:
                             path: "/live"
                           route:
                             cluster: upstream_status
-                            timeout: 5s
+                            timeout: 2s
                         - match:
                             path: "/api/v1/status"
                           route:
                             cluster: upstream_status
-                            timeout: 5s
+                            timeout: 2s
                         - match:
                             prefix: "/"
                           direct_response:
@@ -235,10 +261,27 @@ static_resources:
 
   clusters:
     - name: upstream_api
-      connect_timeout: 2s
+      connect_timeout: 1s
       type: STRICT_DNS
       dns_lookup_family: V4_ONLY
       lb_policy: ROUND_ROBIN
+      ignore_health_on_host_removal: false
+      circuit_breakers:
+        thresholds:
+          - priority: DEFAULT
+            retry_budget:
+              budget_percent:
+                value: 20.0
+              min_retry_concurrency: 1
+      health_checks:
+        - timeout: 1s
+          interval: 2s
+          no_traffic_interval: 2s
+          unhealthy_threshold: 2
+          healthy_threshold: 2
+          always_log_health_check_failures: true
+          http_health_check:
+            path: "/health"
       load_assignment:
         cluster_name: upstream_api
         endpoints:
@@ -248,12 +291,27 @@ static_resources:
                     socket_address:
                       address: upstream-api
                       port_value: 8000
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: upstream-api-2
+                      port_value: 8000
 
     - name: upstream_status
-      connect_timeout: 2s
+      connect_timeout: 1s
       type: STRICT_DNS
       dns_lookup_family: V4_ONLY
       lb_policy: ROUND_ROBIN
+      ignore_health_on_host_removal: false
+      health_checks:
+        - timeout: 1s
+          interval: 2s
+          no_traffic_interval: 2s
+          unhealthy_threshold: 2
+          healthy_threshold: 2
+          always_log_health_check_failures: true
+          http_health_check:
+            path: "/health"
       load_assignment:
         cluster_name: upstream_status
         endpoints:

@@ -1,32 +1,30 @@
 # Envoy edge configuration
 
-Milestone 5: **host + path routing** with TLS termination at Envoy.
+Milestone 6: TLS + host/path routing + **active health checks**, explicit
+timeouts, and **bounded transport-only retries**.
 
-| Listener | Port | Host bind (compose) | Role |
+| Listener | Port | Host bind | Role |
 | --- | --- | --- | --- |
-| `listener_https_data` | 8443 | all interfaces | **Data traffic** — HTTPS; TLS terminates here |
-| `listener_http_debug` | 8080 | `127.0.0.1` | Local plaintext debug; same routing; not public |
-| `admin` | 9901 | `127.0.0.1` | **Control** — Envoy admin |
+| `listener_https_data` | 8443 | all interfaces | Data (HTTPS; TLS ends here) |
+| `listener_http_debug` | 8080 | `127.0.0.1` | Local plaintext debug |
+| `admin` | 9901 | `127.0.0.1` | Control / cluster health |
 
-## Traffic path
+## Reliability policy (summary)
 
-```text
-Client --HTTPS--> Envoy:8443 --HTTP--> upstream-api | upstream-status
-                 (Host selects cluster)
-```
+| Concern | Setting |
+| --- | --- |
+| Active HC | `GET /health` every 2s; remove after 2 failures |
+| Connect timeout | 1s |
+| Items route timeout | 3s (`per_try_timeout` 1s) |
+| Retries | GET items only: `connect-failure,refused-stream,reset`; `num_retries=2`; ~20% retry budget |
+| Not retried | HTTP 5xx / 429 / edge 404s |
 
-Routing contract: [`docs/routing_table.md`](../docs/routing_table.md).
-
-`/__test__/*` is **not** routed through Envoy. Use upstream ports directly.
-
-Rate-limit route class (standard/sensitive) is **not** assigned by hostname.
+Details: `docs/adr/0006-retry-timeout-health.md`, `docs/failure_model.md`.
 
 ## Validate / run
 
 ```bash
-make certs
-make validate-envoy
-make up
-make smoke
-make test-integration
+make certs && make validate-envoy && make up && make smoke && make test-integration
+./scripts/inject_failure.sh unhealthy api-2
+curl -s http://127.0.0.1:9901/clusters | grep health
 ```
