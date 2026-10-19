@@ -22,6 +22,9 @@ UPSTREAM_API_BASE = os.environ.get(
 UPSTREAM_STATUS_BASE = os.environ.get(
     "BREAKWATER_UPSTREAM_STATUS_URL", "http://127.0.0.1:9002"
 ).rstrip("/")
+UPSTREAM_API_2_BASE = os.environ.get(
+    "BREAKWATER_UPSTREAM_API_2_URL", "http://127.0.0.1:9003"
+).rstrip("/")
 ENVOY_ADMIN = os.environ.get(
     "BREAKWATER_ENVOY_ADMIN_URL", "http://127.0.0.1:9901"
 ).rstrip("/")
@@ -29,6 +32,7 @@ CA_CERT_PATH = Path(os.environ.get("BREAKWATER_CA_CERT", str(DEFAULT_CA)))
 
 API_HOST = "api.breakwater.local"
 STATUS_HOST = "status.breakwater.local"
+API_INSTANCE_IDS = frozenset({"api-1", "api-2"})
 
 
 def _ssl_context_for_ca(ca_path: Path) -> ssl.SSLContext:
@@ -79,6 +83,11 @@ def upstream_api_base() -> str:
 @pytest.fixture(scope="session")
 def upstream_status_base() -> str:
     return UPSTREAM_STATUS_BASE
+
+
+@pytest.fixture(scope="session")
+def upstream_api_2_base() -> str:
+    return UPSTREAM_API_2_BASE
 
 
 @pytest.fixture(scope="session")
@@ -141,15 +150,24 @@ def upstream_http() -> httpx.Client:
         yield client
 
 
+def _safe_reset(upstream_http: httpx.Client, base: str) -> None:
+    try:
+        upstream_http.post(f"{base}/__test__/reset")
+    except httpx.HTTPError:
+        # Container may be stopped during slow failure tests.
+        pass
+
+
 @pytest.fixture(autouse=True)
 def reset_upstream_injection(
     upstream_http: httpx.Client,
     upstream_api_base: str,
+    upstream_api_2_base: str,
     upstream_status_base: str,
     require_stack: None,
 ) -> None:
-    upstream_http.post(f"{upstream_api_base}/__test__/reset")
-    upstream_http.post(f"{upstream_status_base}/__test__/reset")
+    for base in (upstream_api_base, upstream_api_2_base, upstream_status_base):
+        _safe_reset(upstream_http, base)
     yield
-    upstream_http.post(f"{upstream_api_base}/__test__/reset")
-    upstream_http.post(f"{upstream_status_base}/__test__/reset")
+    for base in (upstream_api_base, upstream_api_2_base, upstream_status_base):
+        _safe_reset(upstream_http, base)

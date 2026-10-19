@@ -12,9 +12,9 @@ def test_health_through_envoy(
     assert response.status_code == 200
     body = response.json()
     assert body["healthy"] is True
-    assert body["instance_id"] == "api-1"
+    assert body["instance_id"] in {"api-1", "api-2"}
     assert body["surface"] == "api"
-    assert response.headers.get("x-upstream-instance") == "api-1"
+    assert response.headers.get("x-upstream-instance") in {"api-1", "api-2"}
 
 
 def test_v1_items_through_envoy(
@@ -24,9 +24,9 @@ def test_v1_items_through_envoy(
     assert response.status_code == 200
     body = response.json()
     assert body["api_version"] == "v1"
-    assert body["instance_id"] == "api-1"
+    assert body["instance_id"] in {"api-1", "api-2"}
     assert body["count"] == 2
-    assert response.headers.get("x-upstream-instance") == "api-1"
+    assert response.headers.get("x-upstream-instance") in {"api-1", "api-2"}
     assert response.headers.get("x-upstream-surface") == "api"
 
 
@@ -64,15 +64,15 @@ def test_injected_5xx_passes_through_envoy(
     http: httpx.Client,
     envoy_base: str,
     api_host: str,
-    upstream_api_base: str,
     upstream_http: httpx.Client,
     require_stack: None,
 ) -> None:
-    cfg = upstream_http.post(
-        f"{upstream_api_base}/__test__/errors",
-        json={"mode": "http_500", "count": 1},
-    )
-    assert cfg.status_code == 200
+    for port in (9001, 9003):
+        cfg = upstream_http.post(
+            f"http://127.0.0.1:{port}/__test__/errors",
+            json={"mode": "http_500", "count": 5},
+        )
+        assert cfg.status_code == 200
 
     response = http.get(f"{envoy_base}/api/v1/items", headers={"Host": api_host})
     assert response.status_code == 500

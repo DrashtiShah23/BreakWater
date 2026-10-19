@@ -12,7 +12,7 @@ def test_api_host_routes_to_api_upstream(
     assert response.status_code == 200
     body = response.json()
     assert body["surface"] == "api"
-    assert body["instance_id"] == "api-1"
+    assert body["instance_id"] in {"api-1", "api-2"}
     assert body["api_version"] == "v1"
     assert response.headers.get("x-upstream-surface") == "api"
 
@@ -121,15 +121,15 @@ def test_upstream_failure_through_routed_https(
     upstream_http: httpx.Client,
     envoy_base: str,
     api_host: str,
-    upstream_api_base: str,
     require_stack: None,
 ) -> None:
-    cfg = upstream_http.post(
-        f"{upstream_api_base}/__test__/errors",
-        json={"mode": "http_503", "count": 1},
-    )
-    assert cfg.status_code == 200
+    for port in (9001, 9003):
+        cfg = upstream_http.post(
+            f"http://127.0.0.1:{port}/__test__/errors",
+            json={"mode": "http_503", "count": 5},
+        )
+        assert cfg.status_code == 200
     response = http.get(f"{envoy_base}/api/v2/items", headers={"Host": api_host})
     assert response.status_code == 503
     assert response.json()["behavior"] == "http_503"
-    assert response.json()["instance_id"] == "api-1"
+    assert response.json()["instance_id"] in {"api-1", "api-2"}
